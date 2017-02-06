@@ -304,7 +304,8 @@ class cloudera (
   $proxy            = $cloudera::params::proxy,
   $proxy_username   = $cloudera::params::proxy_username,
   $proxy_password   = $cloudera::params::proxy_password,
-  $parcel_dir       = $cloudera::params::parcel_dir
+  $parcel_dir       = $cloudera::params::parcel_dir,
+  $modify_system    = $cloudera::params::modify_system
 ) inherits cloudera::params {
   # Validate our booleans
   validate_bool($autoupgrade)
@@ -319,26 +320,28 @@ class cloudera (
   anchor { 'cloudera::begin': }
   anchor { 'cloudera::end': }
 
-  sysctl { 'vm.swappiness':
-    ensure  => $ensure,
-    value   => '0',
-    apply   => true,
-    comment => 'Clodera recommended setting.',
-    require => Anchor['cloudera::begin'],
-    before  => Anchor['cloudera::end'],
-  }
+  if $modify_system {
+    sysctl { 'vm.swappiness':
+      ensure  => $ensure,
+      value   => '0',
+      apply   => true,
+      comment => 'Clodera recommended setting.',
+      require => Anchor['cloudera::begin'],
+      before  => Anchor['cloudera::end'],
+    }
 
-  exec { 'disable_transparent_hugepage_defrag':
-    command  => 'if [ -f /sys/kernel/mm/transparent_hugepage/defrag ]; then echo never > /sys/kernel/mm/transparent_hugepage/defrag; fi',
-    unless   => 'if [ -f /sys/kernel/mm/transparent_hugepage/defrag ]; then grep -q "\[never\]" /sys/kernel/mm/transparent_hugepage/defrag; fi',
-    path     => '/usr/bin:/usr/sbin:/bin:/sbin',
-    provider => 'shell',
-  }
-  exec { 'disable_redhat_transparent_hugepage_defrag':
-    command  => 'if [ -f /sys/kernel/mm/redhat_transparent_hugepage/defrag ]; then echo never > /sys/kernel/mm/redhat_transparent_hugepage/defrag; fi',
-    unless   => 'if [ -f /sys/kernel/mm/redhat_transparent_hugepage/defrag ]; then grep -q "\[never\]" /sys/kernel/mm/redhat_transparent_hugepage/defrag; fi',
-    path     => '/usr/bin:/usr/sbin:/bin:/sbin',
-    provider => 'shell',
+    exec { 'disable_transparent_hugepage_defrag':
+      command  => 'if [ -f /sys/kernel/mm/transparent_hugepage/defrag ]; then echo never > /sys/kernel/mm/transparent_hugepage/defrag; fi',
+      unless   => 'if [ -f /sys/kernel/mm/transparent_hugepage/defrag ]; then grep -q "\[never\]" /sys/kernel/mm/transparent_hugepage/defrag; fi',
+      path     => '/usr/bin:/usr/sbin:/bin:/sbin',
+      provider => 'shell',
+    }
+    exec { 'disable_redhat_transparent_hugepage_defrag':
+      command  => 'if [ -f /sys/kernel/mm/redhat_transparent_hugepage/defrag ]; then echo never > /sys/kernel/mm/redhat_transparent_hugepage/defrag; fi',
+      unless   => 'if [ -f /sys/kernel/mm/redhat_transparent_hugepage/defrag ]; then grep -q "\[never\]" /sys/kernel/mm/redhat_transparent_hugepage/defrag; fi',
+      path     => '/usr/bin:/usr/sbin:/bin:/sbin',
+      provider => 'shell',
+    }
   }
 
   if $install_lzo {
