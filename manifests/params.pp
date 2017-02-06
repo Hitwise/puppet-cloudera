@@ -308,4 +308,9 @@ class cloudera::params {
     default => $::cloudera_parcel_dir,
   }
 
+  $modify_system = $::modify_system ? {
+    undef   => true,
+    default => $::modify_system,
+  }
+
 }
