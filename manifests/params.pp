@@ -267,7 +267,7 @@ class cloudera::params {
       $cdh5_repopath = "/cdh5/ubuntu/${::lsbdistcodename}/${::architecture}/cdh/"
       $cg5_repopath = "/gplextras5/ubuntu/${::lsbdistcodename}/${::architecture}/gplextras/"
       $cdh_aptkey = false
-      $cm_aptkey = '327574EE02A818DD'
+      $cm_aptkey = 'F36A89E33CC1BD0F71079007327574EE02A818DD'
       $ci_aptkey = false
       $cs_aptkey = false
       $cg_aptkey = false
