@@ -38,7 +38,7 @@
 #
 # [*db_user*]
 #   Administrative database user on *db_host*.
-#   Default: root
+#   Default:
 #
 # [*db_pass*]
 #   Administrative database user *db_user* password.
@@ -81,7 +81,7 @@
 # === Actions:
 #
 # Installs the packages.
-# Configures the database connection.
+# Configures the database connection (if credentials are specified)
 # If using TLS, configures any SSL certificate keystores.
 # Starts the service.
 #
@@ -125,7 +125,7 @@ class cloudera::cm5::server (
   $password          = 'scm',
   $db_host           = 'localhost',
   $db_port           = '3306',
-  $db_user           = 'root',
+  $db_user           = '',
   $db_pass           = '',
   $db_type           = 'embedded',
   $use_tls           = $cloudera::params::safe_cm_use_tls,
@@ -201,87 +201,91 @@ class cloudera::cm5::server (
     require    => Package['cloudera-manager-server'],
   }
 
-  case $db_type {
-    'embedded': {
-      package { 'cloudera-manager-server-db':
-        ensure => $package_ensure,
-        name   => 'cloudera-manager-server-db-2',
-        tag    => 'cloudera-manager',
-      }
+  # Only run the DB bootstrapping if the db_user and db_pass variables are not blank
+  # If they *are* blank, we expect the user to manually run the bootstrap script
+  if $db_user != '' and $db_pass != '' {
+    case $db_type {
+      'embedded': {
+        package { 'cloudera-manager-server-db':
+          ensure => $package_ensure,
+          name   => 'cloudera-manager-server-db-2',
+          tag    => 'cloudera-manager',
+        }
 
-      service { 'cloudera-scm-server-db':
-        ensure     => $service_ensure_real,
-        enable     => $service_enable,
-        hasrestart => true,
-        hasstatus  => true,
-        require    => Package['cloudera-manager-server-db'],
-        before     => Service['cloudera-scm-server'],
+        service { 'cloudera-scm-server-db':
+          ensure     => $service_ensure_real,
+          enable     => $service_enable,
+          hasrestart => true,
+          hasstatus  => true,
+          require    => Package['cloudera-manager-server-db'],
+          before     => Service['cloudera-scm-server'],
+        }
       }
+      'mysql': {
+        if ( $db_host != 'localhost' ) and ( $db_host != $::fqdn ) {
+          # Set the commandline options to connect to a remote database.
+          $scmopts = "--host=${db_host} --port=${db_port} --scm-host=${::fqdn}"
+          $scm_prepare_database_require = Package['cloudera-manager-server']
+        } else {
+          #require '::mysql::server'
+          Class['::mysql::server'] -> Exec['scm_prepare_database']
+          $scm_prepare_database_require = [ Package['cloudera-manager-server'], Class['::mysql::server'], ]
+        }
+
+        if ! defined(Class['::mysql::bindings::java']) {
+          include '::mysql::bindings'
+          include '::mysql::bindings::java'
+        }
+        realize Exec['scm_prepare_database']
+        Class['::mysql::bindings::java'] -> Exec['scm_prepare_database']
+      }
+      'oracle': {
+        if ( $db_host != 'localhost' ) and ( $db_host != $::fqdn ) {
+          # Set the commandline options to connect to a remote database.
+          $scmopts = "--host=${db_host} --port=${db_port} --scm-host=${::fqdn}"
+          $scm_prepare_database_require = Package['cloudera-manager-server']
+        } else {
+          #require '::oraclerdbms::server'
+          #Class['::oraclerdbms::server'] -> Service['cloudera-scm-server']
+          #$scm_prepare_database_require = [ Package['cloudera-manager-server'], Service['oracle'], ]
+          $scm_prepare_database_require = Package['cloudera-manager-server']
+        }
+
+        # TODO: find a Class['::oraclerdbms::java']
+        notice('$db_type oracle is not yet fully supported in Class["cloudera::sm::server"].')
+        #if ! defined(Class['::oraclerdbms::java']) {
+        #  include '::oraclerdbms::java'
+        #}
+        realize Exec['scm_prepare_database']
+        #Class['::oraclerdbms::java'] -> Exec['scm_prepare_database']
+      }
+      'postgresql': {
+        if ( $db_host != 'localhost' ) and ( $db_host != $::fqdn ) {
+          # Set the commandline options to connect to a remote database.
+          $scmopts = "--host=${db_host} --port=${db_port} --scm-host=${::fqdn}"
+          $scm_prepare_database_require = Package['cloudera-manager-server']
+        } else {
+          #require '::postgresql::server'
+          Class['::postgresql::server'] -> Service['cloudera-scm-server']
+          $scm_prepare_database_require = [ Package['cloudera-manager-server'], Class['::postgresql::server'], ]
+        }
+
+        if ! defined(Class['::postgresql::lib::java']) {
+          include '::postgresql::lib::java'
+        }
+        # TODO: Figure out postgresql auth to make Exec['scm_prepare_database'] work.
+        realize Exec['scm_prepare_database']
+        Class['::postgresql::lib::java'] -> Exec['scm_prepare_database']
+      }
+      default: { }
     }
-    'mysql': {
-      if ( $db_host != 'localhost' ) and ( $db_host != $::fqdn ) {
-        # Set the commandline options to connect to a remote database.
-        $scmopts = "--host=${db_host} --port=${db_port} --scm-host=${::fqdn}"
-        $scm_prepare_database_require = Package['cloudera-manager-server']
-      } else {
-        #require '::mysql::server'
-        Class['::mysql::server'] -> Exec['scm_prepare_database']
-        $scm_prepare_database_require = [ Package['cloudera-manager-server'], Class['::mysql::server'], ]
-      }
 
-      if ! defined(Class['::mysql::bindings::java']) {
-        include '::mysql::bindings'
-        include '::mysql::bindings::java'
-      }
-      realize Exec['scm_prepare_database']
-      Class['::mysql::bindings::java'] -> Exec['scm_prepare_database']
+    @exec { 'scm_prepare_database':
+      command => "/usr/share/cmf/schema/scm_prepare_database.sh ${db_type} ${scmopts} --user=${db_user} --password=${db_pass} ${database_name} ${username} ${password} && touch /etc/cloudera-scm-server/.scm_prepare_database",
+      creates => '/etc/cloudera-scm-server/.scm_prepare_database',
+      require => $scm_prepare_database_require,
+      before  => Service['cloudera-scm-server'],
     }
-    'oracle': {
-      if ( $db_host != 'localhost' ) and ( $db_host != $::fqdn ) {
-        # Set the commandline options to connect to a remote database.
-        $scmopts = "--host=${db_host} --port=${db_port} --scm-host=${::fqdn}"
-        $scm_prepare_database_require = Package['cloudera-manager-server']
-      } else {
-        #require '::oraclerdbms::server'
-        #Class['::oraclerdbms::server'] -> Service['cloudera-scm-server']
-        #$scm_prepare_database_require = [ Package['cloudera-manager-server'], Service['oracle'], ]
-        $scm_prepare_database_require = Package['cloudera-manager-server']
-      }
-
-      # TODO: find a Class['::oraclerdbms::java']
-      notice('$db_type oracle is not yet fully supported in Class["cloudera::sm::server"].')
-      #if ! defined(Class['::oraclerdbms::java']) {
-      #  include '::oraclerdbms::java'
-      #}
-      realize Exec['scm_prepare_database']
-      #Class['::oraclerdbms::java'] -> Exec['scm_prepare_database']
-    }
-    'postgresql': {
-      if ( $db_host != 'localhost' ) and ( $db_host != $::fqdn ) {
-        # Set the commandline options to connect to a remote database.
-        $scmopts = "--host=${db_host} --port=${db_port} --scm-host=${::fqdn}"
-        $scm_prepare_database_require = Package['cloudera-manager-server']
-      } else {
-        #require '::postgresql::server'
-        Class['::postgresql::server'] -> Service['cloudera-scm-server']
-        $scm_prepare_database_require = [ Package['cloudera-manager-server'], Class['::postgresql::server'], ]
-      }
-
-      if ! defined(Class['::postgresql::lib::java']) {
-        include '::postgresql::lib::java'
-      }
-      # TODO: Figure out postgresql auth to make Exec['scm_prepare_database'] work.
-      realize Exec['scm_prepare_database']
-      Class['::postgresql::lib::java'] -> Exec['scm_prepare_database']
-    }
-    default: { }
-  }
-
-  @exec { 'scm_prepare_database':
-    command => "/usr/share/cmf/schema/scm_prepare_database.sh ${db_type} ${scmopts} --user=${db_user} --password=${db_pass} ${database_name} ${username} ${password} && touch /etc/cloudera-scm-server/.scm_prepare_database",
-    creates => '/etc/cloudera-scm-server/.scm_prepare_database',
-    require => $scm_prepare_database_require,
-    before  => Service['cloudera-scm-server'],
   }
 
   if $use_tls {
