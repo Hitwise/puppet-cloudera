@@ -130,5 +130,6 @@ class cloudera::cm5 (
     hasrestart => true,
     hasstatus  => true,
     require    => [ Package['cloudera-manager-agent'], Package['cloudera-manager-daemons'], ],
+    subscribe  => File['/usr/bin/java'],
   }
 }
